@@ -1,0 +1,41 @@
+# Pre-commit hooks for the petclinic platform.
+# Local gate: runs on `git commit` before code is committed.
+# Install once with:  pre-commit install
+# Run on all files :  pre-commit run --all-files
+# Update hook pins  :  pre-commit autoupdate
+#
+# Replaces the static-analysis half of the (yanked) awslabs.terraform-mcp-server.
+# CI (.github/workflows/terraform-ci.yml) re-runs these as the unskippable gate.
+
+repos:
+  # Generic hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-yaml
+        args: [--allow-multiple-documents]   # k8s/helm multi-doc manifests
+        exclude: ^(helm/|helm-values/)        # Helm templates use Go templating, not valid YAML
+      - id: detect-private-key                 # backstop for the no-secrets rule
+
+  # Terraform: fmt, validate, tflint, checkov
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.106.0
+    hooks:
+      - id: terraform_fmt
+
+      - id: terraform_validate
+        args:
+          - --tf-init-args=-backend=false      # static validate, no remote state/creds
+
+      - id: terraform_tflint
+        args:
+          - --args=--minimum-failure-severity=error
+
+      - id: terraform_checkov
+        args:
+          - --args=--quiet
+          - --args=--compact
+          - --args=--download-external-modules false

@@ -39,6 +39,10 @@
           {
             "type": "command",
             "command": "bash .claude/hooks/suggest-validate.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/scan-terraform.sh"
           }
         ]
       }
