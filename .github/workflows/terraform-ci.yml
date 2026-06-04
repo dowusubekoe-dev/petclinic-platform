@@ -1,0 +1,105 @@
+name: terraform-ci
+
+# Static analysis gate for Terraform. This is the unskippable enforcement layer:
+# pre-commit hooks can be bypassed with `git commit --no-verify`, CI cannot.
+# All checks here are static — no AWS credentials required (validate uses
+# -backend=false), which keeps the "no long-lived credentials" rule intact.
+
+on:
+  pull_request:
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraform-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+
+permissions:
+  contents: read
+  security-events: write   # required to upload Checkov SARIF to code scanning
+
+env:
+  TF_VERSION: '1.7.0'      # matches local terraform v1.7.0
+
+jobs:
+  fmt:
+    name: terraform fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - name: terraform fmt -check
+        run: terraform fmt -check -recursive terraform/
+
+  validate:
+    name: terraform validate (${{ matrix.dir }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir:
+          - terraform/environments/dev
+          - terraform/environments/prod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - name: terraform init (no backend)
+        working-directory: ${{ matrix.dir }}
+        run: terraform init -backend=false -input=false
+      - name: terraform validate
+        working-directory: ${{ matrix.dir }}
+        run: terraform validate
+
+  tflint:
+    name: tflint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest
+      - run: tflint --init
+      - name: tflint (recursive)
+        run: tflint --recursive --minimum-failure-severity=error
+
+  checkov:
+    name: checkov
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkov scan
+        id: checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform/
+          framework: terraform
+          quiet: true
+          compact: true
+          download_external_modules: false
+          output_format: cli,sarif
+          output_file_path: console,checkov.sarif
+          soft_fail: false        # fail the PR on findings; tune with .checkov.yaml skips
+      - name: Upload Checkov SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov.sarif
+          category: checkov
+
+  trivy:
+    name: trivy config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy IaC/config scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: terraform/
+          severity: CRITICAL,HIGH
+          exit-code: '1'

@@ -131,7 +131,7 @@ Five MCP servers configured at the project level:
 
 | Server | Purpose |
 |--------|---------|
-| `awslabs.terraform-mcp-server` | AWS/AWSCC provider docs, Checkov scanning, terraform/terragrunt execution |
+| `terraform-mcp-server` | HashiCorp official server: Terraform Registry provider/module docs + module/policy discovery. **Does NOT run Checkov or execute Terraform** (the yanked awslabs server did — see scanning note below) |
 | `aws-knowledge-mcp` | AWS documentation search, regional availability, documentation reader |
 | `awslabs.aws-pricing-mcp-server` | Cost estimation for AWS services (RDS, EKS, EC2, ALB) |
 | `context7` | Up-to-date library documentation (Terraform, Kubernetes, Helm) |
@@ -146,6 +146,17 @@ Five MCP servers configured at the project level:
 - **Image tag update:** CI commits new tag to `helm-values/{service}.yaml` → ArgoCD picks up
 - **Prod gates:** ArgoCD manual sync (not GitHub Environments)
 - **Scanning:** Trivy scan after Docker build, fail on CRITICAL CVEs
+- **Terraform static analysis:** `.github/workflows/terraform-ci.yml` on PRs touching `terraform/**` — runs `fmt -check`, `validate` (per-env matrix, `-backend=false`), `tflint`, `checkov` (SARIF → code scanning), and `trivy config`. No AWS creds needed (all static). This is the unskippable gate; pre-commit is the local mirror.
+
+## Terraform Scanning (replaces the yanked awslabs MCP server)
+
+Checkov + Terraform execution are CLIs, layered at three points:
+
+1. **In-loop (Claude Code hook):** `.claude/hooks/scan-terraform.sh` (PostToolUse) runs `terraform fmt -check` + `checkov -d` on the edited module, non-blocking.
+2. **Local gate (pre-commit):** `.pre-commit-config.yaml` runs `terraform_fmt`, `terraform_validate`, `terraform_tflint`, `terraform_checkov`. Install: `pre-commit install`.
+3. **CI gate (GitHub Actions):** `terraform-ci.yml` (above) — the enforcement layer.
+
+Required CLIs: `terraform` (1.7.0), `checkov`, `tflint`, `trivy`. Install checkov via `uv tool install checkov`.
 
 ## Safety Hooks (configured in .claude/settings.json)
 
@@ -155,6 +166,7 @@ Five MCP servers configured at the project level:
 | `block-dangerous-rm.sh` | Block | `rm -rf` on terraform/, k8s/, helm/, helm-values/, .github/, .claude/ |
 | `warn-apply-without-plan.sh` | Warn | `terraform apply` without saved plan.out file |
 | `suggest-validate.sh` | Info | Suggests validate/dry-run after editing .tf, K8s .yaml, Helm, or pipeline files |
+| `scan-terraform.sh` | Info | Runs `terraform fmt -check` + `checkov -d` on the edited Terraform module (non-blocking) |
 | `block-secret-commit.sh` | Block | `git add .`, committing .env, .tfvars, .pem, .key files |
 | `block-mcp-destroy.sh` | Block | `destroy` via MCP Terraform/Terragrunt tools |
 

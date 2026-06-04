@@ -1,0 +1,4 @@
+# Copy to terraform.tfvars (gitignored) and adjust as needed.
+aws_region  = "us-east-1"
+environment = "dev"
+project     = "petclinic"
